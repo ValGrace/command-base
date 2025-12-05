@@ -4,6 +4,7 @@ import (
 	"github.com/ValGrace/command-history-tracker/pkg/history"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -173,7 +174,13 @@ func (p *platformAbstraction) GetShellConfigPath(shell history.ShellType) (strin
 	switch shell {
 	case history.PowerShell:
 		if p.platform == PlatformWindows {
-			// Windows PowerShell profile
+			// Try to get PowerShell profile path from PowerShell itself
+			// This handles OneDrive-redirected Documents folders correctly
+			profilePath, err := p.getPowerShellProfilePath()
+			if err == nil && profilePath != "" {
+				return profilePath, nil
+			}
+			// Fallback to default path if PowerShell query fails
 			return filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"), nil
 		}
 		// PowerShell Core profile on Unix
@@ -231,6 +238,35 @@ func (p *platformAbstraction) GetHomeDirectory() (string, error) {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
 	return homeDir, nil
+}
+
+// getPowerShellProfilePath queries PowerShell for the actual $PROFILE path
+// This handles OneDrive-redirected Documents folders and other edge cases
+func (p *platformAbstraction) getPowerShellProfilePath() (string, error) {
+	if p.platform != PlatformWindows {
+		return "", fmt.Errorf("not on Windows platform")
+	}
+
+	// Try PowerShell Core first (pwsh), then Windows PowerShell (powershell)
+	commands := [][]string{
+		{"pwsh.exe", "-NoProfile", "-NonInteractive", "-Command", "$PROFILE"},
+		{"powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "$PROFILE"},
+	}
+
+	for _, cmdArgs := range commands {
+		cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+		output, err := cmd.Output()
+		if err != nil {
+			continue // Try next PowerShell variant
+		}
+
+		profilePath := strings.TrimSpace(string(output))
+		if profilePath != "" {
+			return profilePath, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to query PowerShell for profile path")
 }
 
 // IsExecutable checks if a file is executable on this platform

@@ -1,11 +1,12 @@
 package shell
 
 import (
-	"github.com/ValGrace/command-history-tracker/pkg/history"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ValGrace/command-history-tracker/pkg/history"
 )
 
 // Integrator implements ShellIntegrator interface
@@ -88,7 +89,14 @@ func (i *Integrator) IsInstalled(shell history.ShellType) (bool, error) {
 
 // getPowerShellScript returns PowerShell integration script
 func (i *Integrator) getPowerShellScript() string {
-	return `# Command History Tracker Integration
+	// Get the tracker executable path
+	trackerPath, err := os.Executable()
+	if err != nil {
+		// Fallback to just "tracker" if we can't determine the path
+		trackerPath = "tracker"
+	}
+	
+	return fmt.Sprintf(`# Command History Tracker Integration
 function Invoke-HistoryTracker {
     param([string]$Command, [string]$Directory, [int]$ExitCode, [long]$Duration)
     
@@ -100,7 +108,10 @@ function Invoke-HistoryTracker {
     $env:CHT_TIMESTAMP = (Get-Date).ToString("o")
     
     # Call the tracker executable to record the command
-    if (Get-Command "tracker" -ErrorAction SilentlyContinue) {
+    $trackerPath = "%s"
+    if (Test-Path $trackerPath) {
+        & $trackerPath record 2>$null
+    } elseif (Get-Command "tracker" -ErrorAction SilentlyContinue) {
         & tracker record 2>$null
     }
 }
@@ -119,15 +130,21 @@ function prompt {
     }
     
     & $global:OriginalPrompt
-}`
+}`, trackerPath)
 }
 
 // getBashScript returns Bash integration script
 func (i *Integrator) getBashScript() string {
-	return `# Command History Tracker Integration
+	// Get the tracker executable path
+	trackerPath, err := os.Executable()
+	if err != nil {
+		trackerPath = "tracker"
+	}
+	
+	return fmt.Sprintf(`# Command History Tracker Integration
 __cht_record_command() {
     local exit_code=$?
-    local end_time=$(date +%s%3N)
+    local end_time=$(date +%%s%%3N)
     local duration=$((end_time - ${__cht_start_time:-$end_time}))
     
     if [[ -n "$__cht_current_command" ]]; then
@@ -139,7 +156,10 @@ __cht_record_command() {
         export CHT_TIMESTAMP=$(date -Iseconds)
         
         # Call the tracker executable to record the command
-        if command -v tracker >/dev/null 2>&1; then
+        local tracker_path="%s"
+        if [[ -x "$tracker_path" ]]; then
+            "$tracker_path" record 2>/dev/null
+        elif command -v tracker >/dev/null 2>&1; then
             tracker record 2>/dev/null
         fi
         
@@ -151,7 +171,7 @@ __cht_record_command() {
 
 __cht_preexec() {
     __cht_current_command="$1"
-    __cht_start_time=$(date +%s%3N)
+    __cht_start_time=$(date +%%s%%3N)
 }
 
 # Set up command capture hooks
@@ -175,15 +195,21 @@ if [[ -z "$__cht_installed" ]]; then
     else
         PROMPT_COMMAND="__cht_record_command; $PROMPT_COMMAND"
     fi
-fi`
+fi`, trackerPath)
 }
 
 // getZshScript returns Zsh integration script
 func (i *Integrator) getZshScript() string {
-	return `# Command History Tracker Integration
+	// Get the tracker executable path
+	trackerPath, err := os.Executable()
+	if err != nil {
+		trackerPath = "tracker"
+	}
+	
+	return fmt.Sprintf(`# Command History Tracker Integration
 __cht_record_command() {
     local exit_code=$?
-    local end_time=$(date +%s%3N)
+    local end_time=$(date +%%s%%3N)
     local duration=$((end_time - ${__cht_start_time:-$end_time}))
     
     if [[ -n "$__cht_current_command" ]]; then
@@ -195,7 +221,10 @@ __cht_record_command() {
         export CHT_TIMESTAMP=$(date -Iseconds)
         
         # Call the tracker executable to record the command
-        if command -v tracker >/dev/null 2>&1; then
+        local tracker_path="%s"
+        if [[ -x "$tracker_path" ]]; then
+            "$tracker_path" record 2>/dev/null
+        elif command -v tracker >/dev/null 2>&1; then
             tracker record 2>/dev/null
         fi
         
@@ -207,7 +236,7 @@ __cht_record_command() {
 
 __cht_preexec() {
     __cht_current_command="$1"
-    __cht_start_time=$(date +%s%3N)
+    __cht_start_time=$(date +%%s%%3N)
 }
 
 # Set up command capture hooks
@@ -218,7 +247,7 @@ if [[ -z "$__cht_installed" ]]; then
     autoload -Uz add-zsh-hook
     add-zsh-hook preexec __cht_preexec
     add-zsh-hook precmd __cht_record_command
-fi`
+fi`, trackerPath)
 }
 
 // getCmdScript returns Windows Command Prompt integration script
